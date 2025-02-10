@@ -33,8 +33,23 @@
  */
 package fr.paris.lutece.plugins.forms.business.form.panel.initializer.querypart.impl;
 
+import fr.paris.lutece.api.user.User;
+import fr.paris.lutece.plugins.forms.business.Form;
+import fr.paris.lutece.plugins.forms.business.FormHome;
 import fr.paris.lutece.plugins.forms.business.form.FormParameters;
+import fr.paris.lutece.plugins.forms.util.FormsConstants;
+import fr.paris.lutece.portal.service.workgroup.AdminWorkgroupService;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import org.apache.lucene.document.IntPoint;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.BooleanQuery.Builder;
 import org.apache.lucene.search.MatchAllDocsQuery;
+import org.apache.lucene.search.Query;
 
 /**
  * Implementation of the FormPanelInitializerQueryPart associate to the FormPanelFormsInitializer
@@ -48,6 +63,60 @@ public class FormPanelFormsInitializerQueryPart extends AbstractFormPanelInitial
     {
         super( );
         setFormPanelInitializerSelectQuery( new MatchAllDocsQuery( ) );
+    }
+
+    /**
+     * Constructor used to build a query that selects the Forms that the user can access
+     * 
+     * @param user
+     *            The HTTP user
+     */
+    public FormPanelFormsInitializerQueryPart( User user )
+    {
+        super( );
+        List<Form> listForms = FormHome.getFormList( );
+        listForms = (List<Form>) AdminWorkgroupService.getAuthorizedCollection( listForms, user );
+        List<Integer> listIds = new ArrayList<>( );
+        for ( Form form : listForms )
+        {
+            listIds.add( form.getId( ) );
+        }
+        // sort the list
+        Collections.sort( listIds );
+        List<List<Integer>> listIdsList = new ArrayList<>( );
+        for ( int i = 0; i < listIds.size( ); i++ )
+        {
+            // if there is a gap between the current id and the previous we create a new list
+            if ( i == 0 || listIds.get( i ) != listIds.get( i - 1 ) + 1 )
+            {
+                listIdsList.add( new ArrayList<>( ) );
+            }
+            listIdsList.get( listIdsList.size( ) - 1 ).add( listIds.get( i ) );
+        }
+        List<Query> queries = new ArrayList<>( );
+        if ( !listIdsList.isEmpty( ) && listIdsList.get( 0 ) != null && !listIdsList.get( 0 ).isEmpty( ) )
+        {
+            for ( int i = 0; i < listIdsList.size( ); i++ )
+            {
+                if ( listIdsList.get( i ).size( ) == 1 )
+                {
+                    queries.add( IntPoint.newExactQuery( FormsConstants.PARAMETER_ID_FORM, listIdsList.get( i ).get( 0 ) ) );
+                }
+                else
+                {
+                    queries.add( IntPoint.newRangeQuery( FormsConstants.PARAMETER_ID_FORM, listIdsList.get( i ).get( 0 ),
+                            listIdsList.get( i ).get( listIdsList.get( i ).size( ) - 1 ) ) );
+                }
+            }
+        }
+        Builder builder = new BooleanQuery.Builder( );
+        for ( Query query : queries )
+        {
+            builder.add( query, BooleanClause.Occur.SHOULD );
+        }
+        Query queryForms = builder.build( );
+
+        setFormPanelInitializerSelectQuery( queryForms );
     }
 
     /**
